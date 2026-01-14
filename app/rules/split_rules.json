@@ -1,27 +1,13 @@
 {
-  "context_question_rules": [
-    {
-      "id": "long_context_trailing_idk",
-      "description": "טקסט ארוך שמסתיים ב־אין יודע / לא יודע",
-      "pattern": ".{200,}(אין יודע|לא יודע)",
-      "action": "split_before_match",
-      "priority": 100
-    },
-    {
-      "id": "long_context_then_question_word",
-      "description": "טקסט ארוך ואז מילת פתיחה של שאלה",
-      "pattern": ".{150,}(איזו|איזה|עד כמה|האם)",
-      "action": "split_at_question_word",
-      "priority": 80
-    }
+  "long_text_threshold": 220,
+  "force_split_after_sentences": true,
+  "sentence_end_regex": "[\\.\\!\\?]",
+  "ignore_blocks_starting_with": [
+    "נושא",
+    "רקע",
+    "הסבר",
+    "הערה",
+    "הנחיות"
   ],
-  "question_start_words": [
-    "האם",
-    "עד כמה",
-    "איזו",
-    "איזה",
-    "באיזו מידה",
-    "מה דעתך"
-  ],
-  "max_context_length": 220
+  "max_lines_per_question": 2
 }

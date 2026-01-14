@@ -21,23 +21,48 @@ app.add_middleware(
 )
 
 # --------------------------------------------------
-# Load external rules config
+# 
 # --------------------------------------------------
+# -----------------------------
+# Load external rules config (SAFE)
+# -----------------------------
+from pathlib import Path
+import json
+
 CONFIG_PATH = Path("rules/split_rules.json")
 
-if not CONFIG_PATH.exists():
-    raise RuntimeError("Missing rules/split_rules.json")
+DEFAULT_SPLIT_CONFIG = {
+    "question_start_words": [
+        "מה", "עד כמה", "באיזו מידה", "האם", "למי", "כיצד", "כמה"
+    ],
+    "context_question_rules": [],
+    "max_context_length": 220
+}
 
-with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-    SPLIT_CONFIG = json.load(f)
+def load_split_config():
+    if not CONFIG_PATH.exists():
+        print("⚠️ rules/split_rules.json not found – using DEFAULT rules")
+        return DEFAULT_SPLIT_CONFIG
+
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            print("✅ Loaded split rules from JSON")
+            return {**DEFAULT_SPLIT_CONFIG, **data}
+    except Exception as e:
+        print("⚠️ Failed to load split rules, using DEFAULT rules:", e)
+        return DEFAULT_SPLIT_CONFIG
+
+SPLIT_CONFIG = load_split_config()
 
 QUESTION_START_WORDS = SPLIT_CONFIG.get("question_start_words", [])
 CONTEXT_RULES = sorted(
     SPLIT_CONFIG.get("context_question_rules", []),
     key=lambda x: x.get("priority", 0),
-    reverse=True,
+    reverse=True
 )
-MAX_CONTEXT_LENGTH = SPLIT_CONFIG.get("max_context_length", 200)
+MAX_CONTEXT_LENGTH = SPLIT_CONFIG.get("max_context_length", 220)
+
 
 # --------------------------------------------------
 # Healthcheck
