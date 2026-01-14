@@ -21,10 +21,25 @@ def root():
 # --- ENDPOINT שה-UI צריך ---
 @app.post("/extract")
 async def extract_questions(file: UploadFile = File(...)):
-    # כרגע רק בדיקה – בלי לוגיקה
-    return JSONResponse({
+    content = await file.read()
+
+    text = content.decode("utf-8", errors="ignore")
+
+    lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 10]
+
+    questions = []
+    for line in lines:
+        if "?" in line or "?" in line:
+            questions.append({
+                "text": line,
+                "type": "open",
+                "answers": []
+            })
+
+    return {
         "filename": file.filename,
         "content_type": file.content_type,
-        "status": "received",
-        "questions": []  # בהמשך נכניס כאן את הפלט האמיתי
-    })
+        "status": "parsed",
+        "questions": questions
+    }
+
