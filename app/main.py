@@ -29,144 +29,169 @@ def root():
 # Helpers
 # -----------------------------
 
-QUESTION_START_RE = re.compile(r"^\s*(\d{1,3})[\.\)]\s+(.*)")
-ANSWER_BULLET_RE = re.compile(r"^\s*[\u2022\-–•]\s+(.*)")
-ANSWER_LETTER_RE = re.compile(r"^\s*[א-ת]\)\s+(.*)")
+QUESTION_RE = re.compile(r"^\s*(\d+)\.\s+")
+SCALE_ANSWER_RE = re.compile(r"^\s*\d+\s*[–\-]\s+")
+BULLET_RE = re.compile(r"^\s*[•\-*]\s+")
 
-QUESTION_KEYWORDS = [
-    "מי", "מה", "איזו", "איזה", "עד כמה", "האם", "כמה", "לאיזה", "למי"
-]
-
-def clean_text(text: str) -> str:
-    if not text:
+def clean_text(s: str) -> str:
+    if not s:
         return ""
-    text = text.replace("\u00a0", " ")
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    s = s.replace("\u00a0", " ")
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
 
-def looks_like_real_question(text: str) -> bool:
-    if "?" in text:
+def strip_prefixes(s: str) -> str:
+    s = re.sub(QUESTION_RE, "", s)
+    s = re.sub(SCALE_ANSWER_RE, "", s)
+    s = re.sub(BULLET_RE, "", s)
+    return clean_text(s)
+
+def looks_like_question(line: str) -> bool:
+    t = clean_text(line)
+
+    # חייב להתחיל במספר + נקודה
+    if not QUESTION_RE.match(t):
+        return False
+
+    # קצר מדי = לא שאלה (למשל "1 - כלל לא")
+    if len(t) < 20:
+        return False
+
+    # ניסוחי שאלה
+    if "?" in t:
         return True
-    if text.endswith(":"):
+
+    if re.search(r"\b(מי|מה|עד כמה|באיזו מידה|איזה|לאיזה|האם)\b", t):
         return True
-    for w in QUESTION_KEYWORDS:
-        if w in text:
-            return True
+
+    # fallback – שאלה ארוכה ממוספרת
+    return True
+
+def looks_like_answer(line: str, has_question: bool) -> bool:
+    t = clean_text(line)
+    if not t or not has_question:
+        return False
+
+    # סקאלה ממוספרת
+    if SCALE_ANSWER_RE.match(t):
+        return True
+
+    # בולט
+    if BULLET_RE.match(t):
+        return True
+
+    # טקסט רגיל – תשובה אם לא נראה כמו שאלה
+    if not looks_like_question(t):
+        return True
+
     return False
 
-def is_question_start(line: str) -> Optional[str]:
-    m = QUESTION_START_RE.match(line)
-    if not m:
-        return None
-
-    candidate = clean_text(m.group(2))
-    if looks_like_real_question(candidate):
-        return candidate
-
-    return None  # ← מספר שלא נראה שאלה
-
-def is_answer_line(line: str) -> bool:
-    return bool(
-        ANSWER_BULLET_RE.match(line)
-        or ANSWER_LETTER_RE.match(line)
-    )
-
-def strip_answer_prefix(line: str) -> str:
-    line = ANSWER_BULLET_RE.sub(r"\1", line)
-    line = ANSWER_LETTER_RE.sub(r"\1", line)
-    return clean_text(line)
-
-def infer_question_type(question_text: str, answers: List[str]) -> str:
+def infer_question_type(answers: List[str]) -> str:
     if not answers:
         return "open"
-    if any(x in question_text for x in ["בחר", "סמן", "אפשר לבחור", "יותר מתשובה אחת"]):
-        return "multi_choice"
+    if any(re.match(r"^\d+", a) for a in answers):
+        return "single_choice"
     return "single_choice"
 
 # -----------------------------
-# DOCX parsing
+# DOCX parsing (מותאם למסמך שלך)
 # -----------------------------
 def parse_docx_questions(file_bytes: bytes) -> List[Dict[str, Any]]:
-    from docx import Document
+    try:
+        from docx import Document
+    except Exception:
+        raise RuntimeError("python-docx is not installed")
 
     doc = Document(io.BytesIO(file_bytes))
-    lines = [clean_text(p.text) for p in doc.paragraphs if clean_text(p.text)]
+    paragraphs = [clean_text(p.text) for p in doc.paragraphs]
+    paragraphs = [p for p in paragraphs if p]
 
-    questions = []
-    current_q = None
+    questions: List[Dict[str, Any]] = []
+    current_q: Optional[Dict[str, Any]] = None
 
-    for line in lines:
-        q_text = is_question_start(line)
-
-        if q_text:
-            if current_q:
-                current_q["type"] = infer_question_type(
-                    current_q["text"], current_q["answers"]
-                )
-                questions.append(current_q)
-
-            current_q = {
-                "text": q_text,
-                "answers": [],
-                "context": []
-            }
-            continue
-
+    def flush():
+        nonlocal current_q
         if not current_q:
-            continue
+            return
 
-        if is_answer_line(line):
-            current_q["answers"].append(strip_answer_prefix(line))
-        else:
-            current_q["context"].append(line)
+        qtext = strip_prefixes(current_q["text"])
+        answers = [strip_prefixes(a) for a in current_q["answers"] if strip_prefixes(a)]
 
-    if current_q:
-        current_q["type"] = infer_question_type(
-            current_q["text"], current_q["answers"]
-        )
-        questions.append(current_q)
-
-    output = []
-    for i, q in enumerate(questions, start=1):
-        output.append({
-            "text": q["text"],
-            "type": q["type"],
-            "answers": q["answers"],
+        questions.append({
+            "text": qtext,
+            "type": infer_question_type(answers),
+            "answers": answers,
             "meta": {
-                "question_index": i,
-                "context": " ".join(q["context"]) if q["context"] else None,
-                "source": "docx"
+                "source": "docx",
+                "question_index": len(questions) + 1
             }
         })
+        current_q = None
 
-    return output
+    i = 0
+    while i < len(paragraphs):
+        line = paragraphs[i]
+
+        if looks_like_question(line):
+            flush()
+            current_q = {
+                "text": line,
+                "answers": []
+            }
+            i += 1
+            continue
+
+        if current_q:
+            if looks_like_answer(line, has_question=True):
+                current_q["answers"].append(line)
+            else:
+                # המשך שאלה ארוכה
+                current_q["text"] += " " + line
+
+        i += 1
+
+    flush()
+    return questions
 
 # -----------------------------
-# API
+# API endpoint
 # -----------------------------
 @app.post("/extract")
 async def extract_questions(file: UploadFile = File(...)):
     raw = await file.read()
-    filename = file.filename or ""
+    filename = file.filename or "uploaded"
+    content_type = file.content_type or ""
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
     try:
-        if filename.endswith(".docx"):
+        if ext == "docx":
             questions = parse_docx_questions(raw)
         else:
             return JSONResponse(
                 status_code=400,
-                content={"status": "error", "message": "Unsupported file type"}
+                content={
+                    "status": "error",
+                    "message": "Only DOCX supported at this stage",
+                    "filename": filename,
+                },
             )
 
-        return JSONResponse({
-            "status": "parsed",
-            "filename": filename,
-            "questions_count": len(questions),
-            "questions": questions
-        })
+        return JSONResponse(
+            {
+                "status": "parsed",
+                "filename": filename,
+                "questions_count": len(questions),
+                "questions": questions,
+            }
+        )
 
     except Exception as e:
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": str(e)}
+            content={
+                "status": "error",
+                "filename": filename,
+                "message": str(e),
+            },
         )
