@@ -1,45 +1,51 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from docx import Document
 
 app = FastAPI()
 
-# --- CORS (קריטי ל-Base44) ---
+# CORS – חובה ל־Base44
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # בהמשך נצמצם
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- בדיקת חיים ---
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "LTG Questionnaire Extractor"}
+    return {
+        "status": "ok",
+        "service": "LTG Questionnaire Extractor"
+    }
 
-# --- ENDPOINT שה-UI צריך ---
 @app.post("/extract")
 async def extract_questions(file: UploadFile = File(...)):
-    content = await file.read()
-
-    text = content.decode("utf-8", errors="ignore")
-
-    lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 10]
-
     questions = []
-    for line in lines:
-        if "?" in line or "?" in line:
-            questions.append({
-                "text": line,
-                "type": "open",
-                "answers": []
-            })
+
+    # טיפול בקובץ Word
+    if file.filename.endswith(".docx"):
+        contents = await file.read()
+        document = Document(contents)
+
+        for p in document.paragraphs:
+            text = p.text.strip()
+            if len(text) > 10 and ("?" in text or "?" in text):
+                questions.append({
+                    "text": text,
+                    "type": "open",
+                    "answers": []
+                })
+
+    else:
+        return {
+            "status": "error",
+            "message": "Unsupported file type"
+        }
 
     return {
         "filename": file.filename,
-        "content_type": file.content_type,
         "status": "parsed",
         "questions": questions
     }
-
