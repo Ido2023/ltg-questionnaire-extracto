@@ -1,20 +1,30 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-app = FastAPI(title="LTG Questionnaire Extractor")
+app = FastAPI()
 
-@app.get("/health")
-def health():
-    return {"ok": True}
+# --- CORS (קריטי ל-Base44) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # בהמשך נצמצם
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post("/extract/docx")
-async def extract_docx(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".docx"):
-        raise HTTPException(status_code=400, detail="Only .docx files are supported")
+# --- בדיקת חיים ---
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "LTG Questionnaire Extractor"}
 
-    content = await file.read()
-
-    return {
+# --- ENDPOINT שה-UI צריך ---
+@app.post("/extract")
+async def extract_questions(file: UploadFile = File(...)):
+    # כרגע רק בדיקה – בלי לוגיקה
+    return JSONResponse({
         "filename": file.filename,
-        "size_bytes": len(content),
-        "status": "received"
-    }
+        "content_type": file.content_type,
+        "status": "received",
+        "questions": []  # בהמשך נכניס כאן את הפלט האמיתי
+    })
